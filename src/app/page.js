@@ -1,95 +1,111 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+"use client"
+import React , { Component } from "react";
+import { ethers } from "ethers";
+import { ConnectWallet } from "../../components/ConnectWallet";
+import auctionAddress from "../../contracts/DutchAuction-contract-address.json";
+import auctionArtifacts from "../../contracts/DutchAuction.json";
 
-export default function Home() {
-  return (
-    <main className={styles.main}>
-      <div className={styles.description}>
-        <p>
-          Get started by editing&nbsp;
-          <code className={styles.code}>src/app/page.js</code>
-        </p>
-        <div>
-          <a
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className={styles.vercelLogo}
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
-        </div>
-      </div>
+const HARD_HAT_NETWORK_id = "1337";
+const ERROR_CODE_TX_REJECTED_BY_USER = 4001;
 
-      <div className={styles.center}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-      </div>
+export default class extends Component {
 
-      <div className={styles.grid}>
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Docs <span>-&gt;</span>
-          </h2>
-          <p>Find in-depth information about Next.js features and API.</p>
-        </a>
+    constructor(props) {
+        super(props);
+        this.initialState = {
+            selectedAccount: null,
+            txBeingSent: null,
+            networkError: null,
+            transactionError: null,
+            balance: null
+        };
 
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Learn <span>-&gt;</span>
-          </h2>
-          <p>Learn about Next.js in an interactive course with&nbsp;quizzes!</p>
-        </a>
+        this.state = this.initialState;
+    }
 
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Templates <span>-&gt;</span>
-          </h2>
-          <p>Explore starter templates for Next.js.</p>
-        </a>
+    _connectionWallet = async () => {
+        if(window.ethereum === undefined) {
+            this.setState({networkError: "Please install Metamask!"});
+            return;
+        }
 
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Deploy <span>-&gt;</span>
-          </h2>
-          <p>
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
-    </main>
-  );
+        const [selectedAddress] = await window.ethereum.request({
+            method: "eth_requestAccounts"
+        });
+
+        if(!this._checkNetwork()) {
+            return;
+        }
+
+        this.initialize(selectedAddress);
+
+        window.ethereum.on("accountsChanged", ([newAddress]) => {
+            if(newAddress === undefined) {
+                return this._resetState();
+            }
+
+            this.initialize(newAddress);
+        })
+
+        window.ethereum.on("chainChanged", () => {
+            this._resetState();
+        })
+    }
+
+    async initialize(selectedAddress) {
+        this._provider = new ethers.providers.Web3Provider(window.ethereum);
+
+        this._auction = new ethers.Contract(
+            auctionAddress.DutchAuction,
+            auctionArtifacts.abi,
+            this._provider
+        );
+
+        this.setState({
+            selectedAddress: selectedAddress,
+        }, async () => await this.updateBalance());
+
+        
+    }
+
+    async updateBalance() {
+        const newBalance = (await this._provider.getBalance(this.state.selectedAddress)).toString();
+        this.setState({balance: newBalance});
+        console.log(newBalance);
+    }
+
+    _resetState() {
+        this.setState(this.initialState);
+    }
+
+    _checkNetwork = async () => {
+        if(window.ethereum.networkVersion === HARD_HAT_NETWORK_id) { 
+            return true;
+        }
+
+        this.setState({networkError: "Please connect to localhost:8545!"});
+
+        return false;
+    }
+
+    _dismissNetworkError = () => {
+        this.setState({networkError: null});
+    }
+
+
+    render() {
+        if(!this.state.selectedAddress) {
+            return (
+                <ConnectWallet
+                    connectWallet={this._connectionWallet}
+                    networkError={this.state.networkError}
+                    dismiss={this._dismissNetworkError}
+                />
+            );
+        }
+
+        return <>
+            {this.state.balance && <p>{ethers.utils.formatEther(this.state.balance)} ETH</p>}
+        </>
+    }
 }
